@@ -1,0 +1,2 @@
+# Pinguino
+Traductor de Chino 
