@@ -601,8 +601,17 @@ class GeneradorHTMLPinyin:
         filas_html = []
         i = 0
         
-        # Caché para traducciones para evitar llamadas repetidas
-        cache_traducciones = {}
+        # Usar caché global si existe, sino crear caché local temporal
+        if hasattr(self, 'cache_traducciones_grupos') and self.cache_traducciones_grupos:
+            cache_traducciones = self.cache_traducciones_grupos
+            usar_cache_global = True
+        else:
+            cache_traducciones = {}
+            usar_cache_global = False
+        
+        # Contador para limitar llamadas API y evitar sobrecarga
+        traducciones_realizadas = 0
+        max_traducciones_por_lote = 50  # Límite de seguridad
         
         while i < len(datos_tabla):
             fila_actual = datos_tabla[i]
@@ -651,13 +660,25 @@ class GeneradorHTMLPinyin:
                 if caracteres_para_traducir and len(caracteres_para_traducir) >= 3:  # Mínimo 3 caracteres para evitar sobrecarga
                     texto_grupo = "".join(caracteres_para_traducir)
                     
+                    # Verificar límite de traducciones para no sobrecargar la API
+                    if traducciones_realizadas >= max_traducciones_por_lote:
+                        continue  # Saltar traducciones adicionales
+                    
                     # Verificar caché primero
                     cache_key = f"{texto_grupo}_{idioma_destino}"
                     if cache_key in cache_traducciones:
                         traduccion_grupo = cache_traducciones[cache_key]
+                        # Registrar cache hit
+                        if usar_cache_global and hasattr(self, 'cache_hits'):
+                            self.cache_hits += 1
                     else:
+                        # Registrar cache miss
+                        if usar_cache_global and hasattr(self, 'cache_misses'):
+                            self.cache_misses += 1
+                        
                         # Usar función segura para traducir
                         traduccion_grupo = None
+                        traducciones_realizadas += 1  # Incrementar contador
                         
                         # Intentar traducir con método simple y timeout corto
                         try:
@@ -668,9 +689,20 @@ class GeneradorHTMLPinyin:
                             traductor_grupo = GoogleTranslator(source='zh-CN', target=idioma_destino)
                             traduccion_grupo = traductor_grupo.translate(texto_grupo)
                             
-                            # Verificar que no tardó demasiado
-                            if time.time() - start_time > 8:  # Más de 8 segundos
-                                print(f"Traducción tardó demasiado: {texto_grupo}")
+                            # Limpiar prefijos no deseados que a veces agrega el traductor
+                            if traduccion_grupo:
+                                traduccion_grupo = traduccion_grupo.strip()
+                                # Quitar prefijos de idioma que agrega Google Translate
+                                prefijos_a_remover = ['us ', 'es ', 'en ', 'zh ', 'cn ']
+                                for prefijo in prefijos_a_remover:
+                                    if traduccion_grupo.lower().startswith(prefijo):
+                                        traduccion_grupo = traduccion_grupo[len(prefijo):].strip()
+                                        break
+                            
+                            # Verificar que no tardó demasiado (reducido a 6 segundos)
+                            tiempo_transcurrido = time.time() - start_time
+                            if tiempo_transcurrido > 6:
+                                print(f"⚠️ Traducción lenta ({tiempo_transcurrido:.1f}s): {texto_grupo[:30]}...")
                                 traduccion_grupo = None
                             
                             # Guardar en caché solo si es exitosa
@@ -775,13 +807,16 @@ class TraductorChino:
     """Aplicación de traductor chino con pronunciación Pinyin"""
     
     def __init__(self):
-        """Inicializa la aplicación del traductor"""
-        # Cache para traducciones de grupos para evitar llamadas repetidas
+        """Inicializa la aplicación del traductor con optimizaciones de recursos"""
+        # Cache para traducciones de grupos con límite de memoria
         self.cache_traducciones_grupos = {}
+        self.max_cache_size = 500  # Máximo de entradas en caché
+        self.cache_hits = 0
+        self.cache_misses = 0
         
-        # Mejorar el manejo de traducciones con timeouts
+        # Mejorar el manejo de traducciones con timeouts optimizados
         import socket
-        socket.setdefaulttimeout(8)  # 8 segundos timeout para evitar congelamiento
+        socket.setdefaulttimeout(6)  # 6 segundos timeout (reducido de 8 para mejor rendimiento)
         
         # Crear ventana principal PRIMERO
         self.app = customtkinter.CTk()
@@ -1205,11 +1240,32 @@ class TraductorChino:
         self.update_worker.start()
     
     def on_closing(self):
-        """Maneja el cierre de la aplicación guardando caché"""
+        """Maneja el cierre de la aplicación guardando caché y estadísticas"""
         try:
             # Guardar cachés
             self.guardar_cache("traducciones", self.cache_traducciones)
             self.guardar_cache("pinyin", self.cache_pinyin)
+            
+            # Guardar estadísticas de rendimiento
+            if hasattr(self, 'cache_hits') and hasattr(self, 'cache_misses'):
+                total_accesos = self.cache_hits + self.cache_misses
+                if total_accesos > 0:
+                    hit_rate = (self.cache_hits / total_accesos) * 100
+                    stats = {
+                        'cache_hits': self.cache_hits,
+                        'cache_misses': self.cache_misses,
+                        'hit_rate': hit_rate,
+                        'total_accesos': total_accesos,
+                        'fecha': time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    try:
+                        import json
+                        stats_file = self.cache_dir / "stats.json"
+                        with open(stats_file, 'w', encoding='utf-8') as f:
+                            json.dump(stats, f, indent=2, ensure_ascii=False)
+                        print(f"📊 Estadísticas guardadas - Hit rate: {hit_rate:.1f}%")
+                    except Exception as e:
+                        print(f"Error guardando estadísticas: {e}")
             
             # Detener worker de UI
             if hasattr(self, 'ui_update_queue'):
@@ -1219,10 +1275,10 @@ class TraductorChino:
             if hasattr(self, 'executor'):
                 self.executor.shutdown(wait=False)
             
-            print("Caché guardado y recursos liberados")
+            print("✅ Caché guardado y recursos liberados")
             
         except Exception as e:
-            print(f"Error cerrando aplicación: {e}")
+            print(f"❌ Error cerrando aplicación: {e}")
         finally:
             self.app.destroy()
     
@@ -2068,7 +2124,29 @@ class TraductorChino:
         try:
             limite_elementos = int(self.limite_cache_mb * 0.5)  # 50% del límite para traducciones
             
+            # Gestionar caché de traducciones principales
             if len(self.cache_traducciones) > limite_elementos:
+                items_mantener = limite_elementos // 2
+                items_recientes = list(self.cache_traducciones.items())[-items_mantener:]
+                self.cache_traducciones = dict(items_recientes)
+                print(f"Caché traducciones optimizado: {len(self.cache_traducciones)} elementos")
+            
+            # Gestionar caché de grupos de traducciones (nuevo)
+            if hasattr(self, 'cache_traducciones_grupos') and len(self.cache_traducciones_grupos) > self.max_cache_size:
+                # Mantener solo los más recientes
+                items_mantener = self.max_cache_size // 2
+                items_recientes = list(self.cache_traducciones_grupos.items())[-items_mantener:]
+                self.cache_traducciones_grupos = dict(items_recientes)
+                print(f"Caché grupos optimizado: {len(self.cache_traducciones_grupos)} elementos")
+                
+                # Mostrar estadísticas de hit rate
+                total_accesos = self.cache_hits + self.cache_misses
+                if total_accesos > 0:
+                    hit_rate = (self.cache_hits / total_accesos) * 100
+                    print(f"📊 Hit rate del caché: {hit_rate:.1f}% ({self.cache_hits}/{total_accesos})")
+            
+        except Exception as e:
+            print(f"Error gestionando caché traducciones: {e}")
                 # Mantener elementos más recientes
                 items_mantener = int(limite_elementos * 0.8)
                 items = list(self.cache_traducciones.items())[-items_mantener:]
@@ -4006,12 +4084,11 @@ class TraductorChino:
             
             # Pedir al usuario dónde guardar el archivo
             archivo_pdf = filedialog.asksaveasfilename(
-                title="Guardar PDF",
+                title="Guardar como PDF",
                 defaultextension=".pdf",
                 filetypes=[
-                    ("PDF files", "*.pdf"),
-                    ("HTML files", "*.html"),
-                    ("All files", "*.*")
+                    ("Archivos PDF", "*.pdf"),
+                    ("Todos los archivos", "*.*")
                 ],
                 initialfile="tabla_pinyin_traduccion.pdf"
             )
@@ -4019,55 +4096,79 @@ class TraductorChino:
             if not archivo_pdf:
                 return  # Usuario canceló
             
-            # Obtener contenido completo si está disponible
-            contenido_completo = None
-            if hasattr(self, 'contenido_completo_actual'):
-                contenido_completo = self.contenido_completo_actual
+            # Asegurar que termine con .pdf
+            if not archivo_pdf.lower().endswith('.pdf'):
+                archivo_pdf += '.pdf'
+            
+            # Asegurar que termine con .pdf
+            if not archivo_pdf.lower().endswith('.pdf'):
+                archivo_pdf += '.pdf'
             
             # Generar HTML completo para exportar
             html_para_pdf = self.generar_html_para_pdf()
             
-            # Determinar si es PDF o HTML según la extensión
-            if archivo_pdf.lower().endswith('.pdf'):
-                # Intentar convertir a PDF usando diferentes métodos
-                exito = self.convertir_html_a_pdf(html_para_pdf, archivo_pdf)
-                if not exito:
-                    # Fallback: guardar como HTML y abrir en navegador para que el usuario lo convierta
-                    archivo_html = archivo_pdf.replace('.pdf', '.html')
-                    with open(archivo_html, 'w', encoding='utf-8') as f:
-                        f.write(html_para_pdf)
-                    
-                    webbrowser.open(f"file://{archivo_html}")
-                    self.mostrar_mensaje_info(
-                        "PDF Export Info",
-                        f"Se guardó como HTML: {archivo_html}\n\n"
-                        "Se abrió en tu navegador.\n"
-                        "Para convertir a PDF:\n"
-                        "1. Presiona Ctrl+P en el navegador\n"
-                        "2. Selecciona 'Guardar como PDF'\n"
-                        "3. Haz clic en 'Guardar'"
-                    )
-            else:
-                # Guardar como HTML directamente
-                with open(archivo_pdf, 'w', encoding='utf-8') as f:
+            # Intentar convertir a PDF usando diferentes métodos
+            exito = self.convertir_html_a_pdf(html_para_pdf, archivo_pdf)
+            
+            if not exito:
+                # Fallback: guardar como HTML temporal y abrir en navegador
+                archivo_html_temp = archivo_pdf.replace('.pdf', '_temp.html')
+                with open(archivo_html_temp, 'w', encoding='utf-8') as f:
                     f.write(html_para_pdf)
                 
-                # Preguntar si abrir el archivo
-                respuesta = self.preguntar_si_no("¿Abrir el archivo HTML guardado?")
-                if respuesta:
-                    webbrowser.open(f"file://{archivo_pdf}")
-                
-                self.mostrar_mensaje_info("Exportado", f"Archivo guardado exitosamente:\n{archivo_pdf}")
+                webbrowser.open(f"file://{archivo_html_temp}")
+                self.mostrar_mensaje_info(
+                    "Convertir a PDF Manualmente",
+                    f"El archivo HTML se abrió en tu navegador.\n\n"
+                    f"Para guardarlo como PDF:\n"
+                    f"1. Presiona Ctrl+P (Imprimir)\n"
+                    f"2. Selecciona 'Guardar como PDF'\n"
+                    f"3. Guarda con el nombre:\n   {os.path.basename(archivo_pdf)}\n\n"
+                    f"Archivo temporal: {archivo_html_temp}"
+                )
             
         except Exception as e:
             self.mostrar_error(f"Error exportando: {str(e)}")
     
+    def limpiar_datos_tabla_para_pdf(self, datos_tabla):
+        """Limpia datos de tabla eliminando separadores vacíos y filas innecesarias"""
+        try:
+            if not datos_tabla:
+                return []
+            
+            datos_limpios = []
+            
+            for fila in datos_tabla:
+                # Saltar filas vacías o que solo contienen separadores
+                if not fila:
+                    continue
+                    
+                # Saltar filas que son solo separadores (⭐, ━━━, etc.)
+                if len(fila) == 1 and str(fila[0]).strip() in ['⭐', '━━━', '┈┈┈', '']:
+                    continue
+                
+                # Saltar filas donde todas las celdas son vacías o solo espacios
+                if all(not str(celda).strip() or str(celda).strip() in ['⭐', '━━━', '┈┈┈'] for celda in fila):
+                    continue
+                
+                # Agregar fila válida
+                datos_limpios.append(fila)
+            
+            return datos_limpios
+            
+        except Exception as e:
+            print(f"Error limpiando datos para PDF: {e}")
+            return datos_tabla  # Retornar datos originales si hay error
+    
     def generar_html_para_pdf(self):
         """Genera HTML optimizado específicamente para PDF"""
         try:
-            # Usar el generador HTML existente pero con ajustes para PDF
+            # Limpiar datos de tabla eliminando separadores antes de generar HTML
+            datos_limpios = self.limpiar_datos_tabla_para_pdf(self.datos_tabla_actual)
+            
+            # Usar el generador HTML existente pero con datos limpios
             html_base = self.generador_html.generar_html_optimizado(
-                self.datos_tabla_actual,
+                datos_limpios,
                 "Tabla de Pronunciación Pinyin - Exportación PDF",
                 getattr(self, 'contenido_completo_actual', None),
                 self.idioma_destino_actual
@@ -4076,6 +4177,11 @@ class TraductorChino:
             # Agregar estilos específicos para PDF
             estilos_pdf = """
             <style>
+                @page {
+                    size: A4;
+                    margin: 1.5cm;
+                }
+                
                 @media print {
                     body {
                         -webkit-print-color-adjust: exact;
@@ -4088,19 +4194,52 @@ class TraductorChino:
                     .page-break {
                         page-break-before: always;
                     }
+                    .separator-row {
+                        display: none !important;
+                    }
+                }
+
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
                 }
 
                 body {
-                    font-family: 'Arial', 'Microsoft YaHei', sans-serif;
-                    margin: 25px;
-                    line-height: 1.5;
+                    font-family: 'Arial', 'Microsoft YaHei', 'SimHei', sans-serif;
+                    margin: 0;
+                    padding: 20px;
+                    line-height: 1.6;
                     color: #1f2937;
                     background: #ffffff;
                 }
 
+                .container {
+                    max-width: 100%;
+                    margin: 0 auto;
+                }
+
                 .header {
-                    margin-bottom: 30px;
+                    margin-bottom: 25px;
                     text-align: center;
+                    padding: 20px;
+                    background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+                    border-radius: 8px;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                }
+                
+                .header h1 {
+                    color: #ffffff;
+                    font-size: 26px;
+                    margin-bottom: 10px;
+                    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+                }
+                
+                .subtitle {
+                    color: #ffffff;
+                    font-size: 15px;
+                    font-weight: 500;
+                    opacity: 0.95;
                 }
 
                 .table-container {
@@ -4111,8 +4250,8 @@ class TraductorChino:
                 .pinyin-table {
                     border-collapse: collapse;
                     width: 100%;
-                    margin: 20px 0;
-                    table-layout: fixed;
+                    margin: 15px 0;
+                    table-layout: auto;
                 }
 
                 .pinyin-row,
@@ -4120,56 +4259,93 @@ class TraductorChino:
                 .translation-row {
                     page-break-inside: avoid;
                 }
+                
+                .separator-row {
+                    display: none !important;
+                }
 
                 .pinyin-cell,
                 .chinese-cell {
-                    border: 1px solid #333;
-                    padding: 10px;
+                    border: 1.5px solid #334155;
+                    padding: 8px 12px;
                     text-align: center;
-                    font-size: 14px;
+                    font-size: 13px;
                     word-break: break-word;
                     background-color: #fafafa;
+                    vertical-align: middle;
                 }
 
                 .pinyin-row .pinyin-cell {
-                    background-color: #f3f4f6;
+                    background-color: #e0e7ff;
                     font-weight: 600;
+                    color: #1e40af;
+                    font-size: 12px;
+                }
+                
+                .chinese-row .chinese-cell {
+                    background-color: #f8fafc;
+                    font-size: 16px;
+                    font-weight: 500;
+                    color: #0f172a;
                 }
 
                 .translation-row {
-                    background-color: #eef2ff;
+                    background-color: #f0f9ff;
                 }
 
                 .translation-cell {
-                    border: 1px solid #333;
-                    padding: 12px 14px;
-                    font-size: 15px;
+                    border: 1.5px solid #334155;
+                    padding: 10px 14px;
+                    font-size: 14px;
                     font-weight: 500;
                     word-break: break-word;
-                    background-color: #eef2ff;
+                    background-color: #f0f9ff;
+                    color: #0c4a6e;
+                    text-align: left;
                 }
 
                 .translation-content {
                     margin: 0;
-                    padding: 0;
+                    padding: 4px 0;
                     border: none;
                     background: transparent;
-                    color: #1f2937;
+                    color: #0c4a6e;
                     display: block;
-                    line-height: 1.6;
+                    line-height: 1.5;
+                }
+                
+                .translation-content.espanol::before {
+                    content: "🇪🇸 ";
+                    font-size: 16px;
+                }
+                
+                .translation-content.ingles::before {
+                    content: "🇺🇸 ";
+                    font-size: 16px;
                 }
 
                 .export-info {
-                    margin-top: 40px;
-                    padding: 20px;
-                    border-top: 2px solid #333;
-                    font-size: 12px;
-                    color: #4b5563;
+                    margin-top: 30px;
+                    padding: 15px 20px;
+                    border-top: 2px solid #cbd5e1;
+                    font-size: 11px;
+                    color: #64748b;
+                    background-color: #f8fafc;
+                    border-radius: 4px;
+                }
+                
+                .export-info h3 {
+                    color: #475569;
+                    font-size: 14px;
+                    margin-bottom: 8px;
+                }
+                
+                .export-info p {
+                    margin: 4px 0;
+                    line-height: 1.4;
                 }
             </style>
-            """
-            
-            # Insertar estilos PDF después del <head>
+            """            # Insertar estilos PDF después del <head>
             html_modificado = html_base.replace('</head>', f'{estilos_pdf}</head>')
             
             # Agregar información de exportación al final
@@ -4205,42 +4381,98 @@ class TraductorChino:
             )
     
     def convertir_html_a_pdf(self, html_content, archivo_pdf):
-        """Intenta convertir HTML a PDF usando diferentes métodos"""
+        """Intenta convertir HTML a PDF usando diferentes métodos con mejor manejo"""
         try:
-            # Método 1: Intentar con weasyprint
+            # Método 1: Intentar con weasyprint (mejor soporte para CSS)
             try:
                 import weasyprint
-                weasyprint.HTML(string=html_content).write_pdf(archivo_pdf)
-                self.mostrar_mensaje_info("PDF Creado", f"PDF guardado exitosamente:\n{archivo_pdf}")
+                from weasyprint import HTML, CSS
+                
+                # Configurar weasyprint con mejor manejo de fuentes chinas
+                html_obj = HTML(string=html_content)
+                html_obj.write_pdf(
+                    archivo_pdf,
+                    presentational_hints=True
+                )
+                
+                self.mostrar_mensaje_info(
+                    "✅ PDF Creado Exitosamente", 
+                    f"El PDF se guardó correctamente:\n\n{archivo_pdf}\n\n"
+                    f"Puedes abrirlo ahora para verificar el contenido."
+                )
+                
+                # Preguntar si desea abrir el PDF
+                if self.preguntar_si_no("¿Deseas abrir el PDF ahora?"):
+                    import webbrowser
+                    webbrowser.open(archivo_pdf)
+                
                 return True
+                
             except ImportError:
-                print("weasyprint no disponible")
+                print("⚠️ weasyprint no está instalado")
+                print("Instalar con: pip install weasyprint")
             except Exception as e:
-                print(f"Error con weasyprint: {e}")
+                print(f"❌ Error con weasyprint: {e}")
             
-            # Método 2: Intentar con pdfkit
+            # Método 2: Intentar con pdfkit (requiere wkhtmltopdf)
             try:
                 import pdfkit
-                pdfkit.from_string(html_content, archivo_pdf)
-                self.mostrar_mensaje_info("PDF Creado", f"PDF guardado exitosamente:\n{archivo_pdf}")
+                
+                # Configurar opciones para mejor renderizado
+                options = {
+                    'encoding': 'UTF-8',
+                    'enable-local-file-access': None,
+                    'print-media-type': None,
+                    'no-outline': None,
+                    'margin-top': '10mm',
+                    'margin-right': '10mm',
+                    'margin-bottom': '10mm',
+                    'margin-left': '10mm',
+                }
+                
+                pdfkit.from_string(html_content, archivo_pdf, options=options)
+                
+                self.mostrar_mensaje_info(
+                    "✅ PDF Creado Exitosamente", 
+                    f"El PDF se guardó correctamente:\n\n{archivo_pdf}"
+                )
+                
+                # Preguntar si desea abrir el PDF
+                if self.preguntar_si_no("¿Deseas abrir el PDF ahora?"):
+                    import webbrowser
+                    webbrowser.open(archivo_pdf)
+                
                 return True
+                
             except ImportError:
-                print("pdfkit no disponible")
+                print("⚠️ pdfkit no está instalado")
+                print("Instalar con: pip install pdfkit")
+                print("También necesitas wkhtmltopdf: https://wkhtmltopdf.org/downloads.html")
             except Exception as e:
-                print(f"Error con pdfkit: {e}")
+                print(f"❌ Error con pdfkit: {e}")
             
-            # Si no funciona ninguno, retornar False para usar método alternativo
+            # Si no funciona ninguno, retornar False
+            print("⚠️ No se pudo convertir a PDF automáticamente")
+            print("💡 Usa el navegador para convertir HTML a PDF")
             return False
             
         except Exception as e:
-            print(f"Error general convirtiendo a PDF: {e}")
+            print(f"❌ Error general convirtiendo a PDF: {e}")
             return False
     
     def mostrar_mensaje_info(self, titulo, mensaje):
-        """Muestra un mensaje informativo al usuario"""
+        """Muestra un mensaje informativo al usuario con mejor diseño"""
         try:
             ventana_info = customtkinter.CTkToplevel(self.app)
-            ventana_info.geometry("400x200")
+            
+            # Ajustar tamaño según contenido
+            if len(mensaje) > 200:
+                ventana_info.geometry("500x280")
+            elif len(mensaje) > 100:
+                ventana_info.geometry("450x220")
+            else:
+                ventana_info.geometry("400x180")
+                
             ventana_info.title(titulo)
             ventana_info.resizable(False, False)
             
@@ -4250,29 +4482,40 @@ class TraductorChino:
             
             # Configurar grid
             ventana_info.grid_columnconfigure(0, weight=1)
+            ventana_info.grid_rowconfigure(0, weight=1)
+            
+            # Frame principal
+            frame_main = customtkinter.CTkFrame(ventana_info)
+            frame_main.grid(row=0, column=0, sticky="nsew", padx=15, pady=15)
+            frame_main.grid_columnconfigure(0, weight=1)
             
             label_info = customtkinter.CTkLabel(
-                ventana_info,
+                frame_main,
                 text=mensaje,
                 font=("Arial", 12),
-                wraplength=350
+                wraplength=450,
+                justify="left"
             )
-            label_info.grid(row=0, column=0, pady=20, padx=20)
+            label_info.grid(row=0, column=0, pady=(10, 20), padx=15, sticky="w")
             
             btn_ok = customtkinter.CTkButton(
-                ventana_info,
-                text="OK",
+                frame_main,
+                text="Entendido",
                 command=ventana_info.destroy,
-                width=80,
-                height=30
+                width=120,
+                height=35,
+                font=("Arial", 13, "bold")
             )
-            btn_ok.grid(row=1, column=0, pady=(0, 20))
+            btn_ok.grid(row=1, column=0, pady=(0, 10))
             
             # Centrar la ventana en la pantalla
             ventana_info.update_idletasks()
             x = (ventana_info.winfo_screenwidth() // 2) - (ventana_info.winfo_width() // 2)
             y = (ventana_info.winfo_screenheight() // 2) - (ventana_info.winfo_height() // 2)
             ventana_info.geometry(f"+{x}+{y}")
+            
+            # Focus en el botón
+            btn_ok.focus_set()
             
         except Exception as e:
             print(f"Error mostrando mensaje info: {e}")
