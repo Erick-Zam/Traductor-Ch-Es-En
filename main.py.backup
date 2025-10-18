@@ -522,53 +522,30 @@ class GeneradorHTMLPinyin:
             }}
             
             .translation-cell {{
-                padding: 8px 12px !important;
+                padding: 0 !important;
                 border: none !important;
-                width: 100% !important;
             }}
             
             .translation-content {{
                 background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-                margin: 4px 0 8px 0;
+                margin: 8px 4px 12px 4px;
                 padding: 12px 16px;
                 border-radius: 8px;
                 border-left: 4px solid var(--primary-color);
-                font-size: 1.0em;
-                line-height: 1.4;
+                font-size: 1em;
+                line-height: 1.5;
                 color: #1f2937;
                 box-shadow: 0 2px 4px rgba(37, 99, 235, 0.1);
                 font-weight: 500;
-                text-align: center;
-                transition: all 0.2s ease;
-                display: block;
-                width: 100%;
-                box-sizing: border-box;
-            }}
-            
-            .translation-content:hover {{
-                transform: translateY(-1px);
-                box-shadow: 0 4px 8px rgba(37, 99, 235, 0.2);
-            }}
-            
-            /* Estilos específicos por idioma */
-            .translation-content.espanol {{
-                background: linear-gradient(135deg, #fef3e2 0%, #fde68a 100%);
-                border-left-color: #f59e0b;
-                box-shadow: 0 2px 4px rgba(245, 158, 11, 0.1);
-            }}
-            
-            .translation-content.ingles {{
-                background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-                border-left-color: #10b981;
-                box-shadow: 0 2px 4px rgba(16, 185, 129, 0.1);
+                text-align: left;
             }}
             
             /* Responsive para las traducciones individuales */
             @media (max-width: 768px) {{
                 .translation-content {{
                     font-size: 0.9em;
-                    padding: 8px 12px;
-                    margin: 3px 0 6px 0;
+                    padding: 10px 12px;
+                    margin: 6px 2px 10px 2px;
                 }}
             }}
         </style>
@@ -586,7 +563,7 @@ class GeneradorHTMLPinyin:
         </script>
         """
 
-    def generar_html_optimizado(self, datos_tabla, titulo="Pronunciación Pinyin", contenido_completo=None, idioma_destino='es'):
+    def generar_html_optimizado(self, datos_tabla, titulo="Pronunciación Pinyin", contenido_completo=None):
         """Genera HTML ultra optimizado para la tabla Pinyin con contenido completo"""
         if not datos_tabla:
             return self.generar_html_vacio()
@@ -596,20 +573,15 @@ class GeneradorHTMLPinyin:
         caracteres_chinos = sum(1 for fila in datos_tabla for celda in fila 
                               if isinstance(celda, str) and any('\u4e00' <= c <= '\u9fff' for c in celda))
         
-        # Generar filas de tabla optimizadas con orden vertical correcto
-        # Orden deseado: PINYIN -> CARÁCTER -> TRADUCCIÓN (para cada segmento)
+        # Generar filas de tabla optimizadas con orden correcto
         filas_html = []
         i = 0
-        
-        # Caché para traducciones para evitar llamadas repetidas
-        cache_traducciones = {}
         
         while i < len(datos_tabla):
             fila_actual = datos_tabla[i]
             
-            # Verificar si es una fila separadora (vacía, con estrellas o con solo símbolos)
-            if not fila_actual or all(not str(celda).strip() for celda in fila_actual) or \
-               (len(fila_actual) == 1 and str(fila_actual[0]).strip() in ['⭐', '━━━', '┈┈┈']):
+            # Verificar si es una fila separadora vacía
+            if not fila_actual or all(not str(celda).strip() for celda in fila_actual):
                 # Fila separadora más compacta
                 filas_html.append('<tr class="separator-row"><td colspan="100%" style="text-align: center; padding: 4px; color: #94a3b8; font-size: 14px;">⭐</td></tr>')
                 i += 1
@@ -618,7 +590,6 @@ class GeneradorHTMLPinyin:
             # Procesar par de filas (pinyin + caracteres)
             fila_pinyin = []
             fila_caracteres = []
-            caracteres_para_traducir = []
             
             # Primera fila (debería ser pinyin)
             for celda in fila_actual:
@@ -633,78 +604,50 @@ class GeneradorHTMLPinyin:
                     celda_str = str(celda).strip()
                     if celda_str:
                         fila_caracteres.append(f'<td class="chinese-cell">{celda_str}</td>')
-                        # Recoger caracteres chinos para traducir
-                        for char in celda_str:
-                            if '\u4e00' <= char <= '\u9fff':
-                                caracteres_para_traducir.append(char)
                 i += 2  # Saltar ambas filas
             else:
                 i += 1  # Solo una fila
             
-            # Agregar filas completas horizontalmente (como antes, más eficiente)
+            # Agregar filas en orden correcto: PINYIN ARRIBA, CARACTERES ABAJO
             if fila_pinyin:
                 filas_html.append(f'<tr class="pinyin-row">{"".join(fila_pinyin)}</tr>')
             if fila_caracteres:
                 filas_html.append(f'<tr class="chinese-row">{"".join(fila_caracteres)}</tr>')
                 
-                # Agregar fila de traducción para todo el grupo (más eficiente)
-                if caracteres_para_traducir and len(caracteres_para_traducir) >= 3:  # Mínimo 3 caracteres para evitar sobrecarga
-                    texto_grupo = "".join(caracteres_para_traducir)
+                # Agregar fila de traducción para este grupo individual
+                if fila_caracteres:
+                    # Extraer solo los caracteres chinos de este grupo
+                    caracteres_grupo = []
+                    if i + 1 < len(datos_tabla):
+                        fila_siguiente = datos_tabla[i + 1]
+                        for celda in fila_siguiente:
+                            celda_str = str(celda).strip()
+                            if celda_str and celda_str != "⭐":
+                                caracteres_grupo.append(celda_str)
                     
-                    # Verificar caché primero
-                    cache_key = f"{texto_grupo}_{idioma_destino}"
-                    if cache_key in cache_traducciones:
-                        traduccion_grupo = cache_traducciones[cache_key]
-                    else:
-                        # Usar función segura para traducir
-                        traduccion_grupo = None
-                        
-                        # Intentar traducir con método simple y timeout corto
+                    if caracteres_grupo:
+                        texto_grupo = "".join(caracteres_grupo)
                         try:
+                            # Traducir solo este grupo específico
                             from deep_translator import GoogleTranslator
-                            import time
-                            start_time = time.time()
-                            
-                            traductor_grupo = GoogleTranslator(source='zh-CN', target=idioma_destino)
+                            traductor_grupo = GoogleTranslator(source='zh', target='es')
                             traduccion_grupo = traductor_grupo.translate(texto_grupo)
-                            
-                            # Verificar que no tardó demasiado
-                            if time.time() - start_time > 8:  # Más de 8 segundos
-                                print(f"Traducción tardó demasiado: {texto_grupo}")
-                                traduccion_grupo = None
-                            
-                            # Guardar en caché solo si es exitosa
-                            if traduccion_grupo and traduccion_grupo.strip():
-                                cache_traducciones[cache_key] = traduccion_grupo
-                            
-                        except KeyboardInterrupt:
-                            print("Traducción interrumpida por el usuario")
-                            traduccion_grupo = None
-                            break  # Salir del bucle si el usuario interrumpe
-                        except Exception as e:
-                            print(f"Error traduciendo grupo '{texto_grupo}': {e}")
-                            traduccion_grupo = None
-                    
-                    # Solo agregar fila de traducción si la traducción fue exitosa
-                    if traduccion_grupo and traduccion_grupo.strip():
-                        # Agregar emoji según el idioma
-                        emoji_idioma = "🇪🇸" if idioma_destino == 'es' else "🇺🇸"
-                        nombre_idioma = "Español" if idioma_destino == 'es' else "English"
-                        clase_idioma = "espanol" if idioma_destino == 'es' else "ingles"
+                        except:
+                            traduccion_grupo = "Traducción no disponible"
                         
                         filas_html.append(f'''
                         <tr class="translation-row">
                             <td colspan="100%" class="translation-cell">
-                                <div class="translation-content {clase_idioma}">
-                                    {emoji_idioma} {traduccion_grupo}
+                                <div class="translation-content">
+                                    🌐 {traduccion_grupo}
                                 </div>
                             </td>
                         </tr>
                         ''')
             
-            # Separador más grande entre grupos completos
+            # Agregar espaciado mínimo entre grupos
             if i < len(datos_tabla):
-                filas_html.append('<tr style="height: 12px;"><td colspan="100%"></td></tr>')
+                filas_html.append('<tr style="height: 8px;"><td colspan="100%"></td></tr>')
         
         # Combinar todo el HTML
         css = self.generar_css_optimizado()
@@ -776,22 +719,6 @@ class TraductorChino:
     
     def __init__(self):
         """Inicializa la aplicación del traductor"""
-        # Cache para traducciones de grupos para evitar llamadas repetidas
-        self.cache_traducciones_grupos = {}
-        
-        # Mejorar el manejo de traducciones con timeouts
-        import socket
-        socket.setdefaulttimeout(8)  # 8 segundos timeout para evitar congelamiento
-        
-        # Crear ventana principal PRIMERO
-        self.app = customtkinter.CTk()
-        self.app.title("Traductor Chino Avanzado")
-        self.app.geometry("1400x800")
-        
-        # Variables principales
-        self.idioma_destino_actual = 'es'  # Por defecto español
-        self.modo_oscuro = False
-        
         # Detectar hardware y configurar automáticamente
         self.hardware_info = self.detectar_hardware()
         self.configurar_optimizaciones_hardware()
@@ -812,9 +739,6 @@ class TraductorChino:
         self.pinyin_actual = ""
         self.texto_chino_actual = ""
         
-        # Variable para rastrear el idioma de destino actual
-        self.idioma_destino_actual = 'es'  # Por defecto español
-        
         # Variable para contenido completo (traducción + pinyin + caracteres)
         self.contenido_completo_actual = {
             'texto_original': '',
@@ -833,9 +757,13 @@ class TraductorChino:
         self.progreso_actual = 0
         self.progreso_total = 100
         self.traduccion_en_progreso = False
-        self.actualizacion_traduccion_en_progreso = False
-        self.idioma_destino_pendiente = None
-        self.ultimo_idioma_renderizado = self.idioma_destino_actual
+        self.translation_queue = queue.Queue()
+        self.ui_update_queue = queue.Queue()
+        
+        # Variables de control de progreso optimizadas
+        self.progreso_actual = 0
+        self.progreso_total = 100
+        self.traduccion_en_progreso = False
         
         # Control de optimización de UI (ultra mejorado)
         self.resize_timer = None
@@ -859,8 +787,9 @@ class TraductorChino:
         self.engine = None
         self.inicializar_motor_voz()
         
-        # Configurar ventana principal con geometría adaptativa
+        # Crear ventana principal con geometría adaptativa
         geometria = self.calcular_geometria_inicial()
+        self.app = customtkinter.CTk()
         self.app.geometry(geometria)
         self.app.title("Traductor Chino → Español e Inglés con Pinyin [Optimizado Universal]")
         self.app.resizable(True, True)
@@ -901,46 +830,7 @@ class TraductorChino:
         
         # Guardar caché al cerrar
         self.app.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
-        # Mostrar contenido inicial de forma asíncrona para evitar bloqueos
-        self.app.after(100, self.mostrar_contenido_inicial)
     
-    def traducir_grupo_seguro(self, texto_grupo, idioma_target='es'):
-        """Traduce un grupo de caracteres de forma segura con caché y manejo de errores"""
-        if not texto_grupo or len(texto_grupo) < 2:
-            return None
-            
-        # Crear clave de caché
-        cache_key = f"{texto_grupo}_{idioma_target}"
-        
-        # Verificar caché primero
-        if cache_key in self.cache_traducciones_grupos:
-            return self.cache_traducciones_grupos[cache_key]
-        
-        try:
-            from deep_translator import GoogleTranslator
-            import time
-            
-            start_time = time.time()
-            traductor = GoogleTranslator(source='zh-CN', target=idioma_target)
-            resultado = traductor.translate(texto_grupo)
-            
-            # Verificar que no tardó demasiado
-            if time.time() - start_time > 8:  # Más de 8 segundos
-                print(f"Traducción tardó demasiado: {texto_grupo}")
-                return None
-            
-            if resultado and resultado.strip():
-                # Guardar en caché solo si es exitosa
-                self.cache_traducciones_grupos[cache_key] = resultado
-                return resultado
-                
-        except Exception as e:
-            print(f"Error traduciendo grupo '{texto_grupo}': {e}")
-            return None
-        
-        return None
-
     def detectar_hardware(self):
         """Detecta las especificaciones del hardware automáticamente"""
         try:
@@ -1413,7 +1303,7 @@ class TraductorChino:
         
         self.btn_ingles = customtkinter.CTkButton(
             frame_idiomas,
-            text="🇺🇸 Inglés",
+            text="�🇸 Inglés",
             command=self.traducir_a_ingles,
             font=("Arial", 14, "bold"),
             height=35,  # Más alto
@@ -1478,18 +1368,6 @@ class TraductorChino:
         
         # Botón de copiar eliminado según solicitud del usuario
         
-        self.btn_exportar_pdf = customtkinter.CTkButton(
-            self.frame_botones,
-            text="📄 PDF",
-            command=self.exportar_html_como_pdf,
-            font=("Arial", 16, "bold"),  # Fuente más grande
-            height=45,  # Más alto
-            corner_radius=10,
-            fg_color="#e74c3c",
-            hover_color="#c0392b"
-        )
-        self.btn_exportar_pdf.grid(row=0, column=2, padx=5, pady=10, sticky="ew")
-        
         self.btn_limpiar = customtkinter.CTkButton(
             self.frame_botones,
             text="🗑️ Limpiar",
@@ -1500,7 +1378,7 @@ class TraductorChino:
             fg_color="#666666",
             hover_color="#777777"
         )
-        self.btn_limpiar.grid(row=0, column=3, padx=5, pady=10, sticky="ew")
+        self.btn_limpiar.grid(row=0, column=2, padx=5, pady=10, sticky="ew")
     
     def crear_seccion_pinyin_derecha(self):
         """Crea la sección de pinyin en el lado derecho con HTML viewer optimizado"""
@@ -1545,8 +1423,7 @@ class TraductorChino:
             self.crear_fallback_viewer()
         
         # Mostrar mensaje inicial
-        # *** No llamar mostrar_contenido_inicial aquí para evitar bloqueos ***
-        # Se llamará después de que termine la inicialización completa
+        self.mostrar_contenido_inicial()
     
     def crear_html_viewer(self):
         """Crea el viewer HTML optimizado sin conflictos de scroll"""
@@ -1561,35 +1438,26 @@ class TraductorChino:
             self.html_container.grid_columnconfigure(0, weight=1)
             self.html_container.grid_rowconfigure(0, weight=1)
             
-            # HTML Frame optimizado con scroll propio - con timeout
+            # HTML Frame optimizado con scroll propio
             if HTML_DISPONIBLE and HtmlFrameClass is not None:
-                try:
-                    # Crear con configuración mínima para evitar bloqueos
-                    self.html_frame = HtmlFrameClass(
-                        self.html_container,
-                        messages_enabled=False,  # Desactivar mensajes para mejor rendimiento
-                        vertical_scrollbar=True,  # Habilitar scroll interno del HTML
-                        horizontal_scrollbar=False,  # Sin scroll horizontal
-                        width=800,  # Ancho fijo para evitar problemas
-                        height=400  # Alto fijo
-                    )
-                    self.html_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-                    
-                    # Variables de control
-                    self.tabla_pinyin = None  # Mantener compatibilidad
-                    self.modo_html_activo = True
-                    self.scrollable_frame = self.html_container  # Para compatibilidad
-                    
-                    print("HTML Viewer inicializado - Rendimiento ultra optimizado")
-                except Exception as html_error:
-                    print(f"Error inicializando HTML frame: {html_error}")
-                    # Fallback a modo textbox
-                    self.usar_html_viewer = False
-                    self.crear_fallback_viewer()
+                self.html_frame = HtmlFrameClass(
+                    self.html_container,
+                    messages_enabled=False,  # Desactivar mensajes para mejor rendimiento
+                    vertical_scrollbar=True,  # Habilitar scroll interno del HTML
+                    horizontal_scrollbar=False,  # Sin scroll horizontal
+                    width=800,  # Ancho fijo para evitar problemas
+                    height=400  # Alto fijo
+                )
+                self.html_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+                
+                # Variables de control
+                self.tabla_pinyin = None  # Mantener compatibilidad
+                self.modo_html_activo = True
+                self.scrollable_frame = self.html_container  # Para compatibilidad
+                
+                print("HTML Viewer inicializado - Rendimiento ultra optimizado")
             else:
-                print("tkinterweb.HtmlFrame no disponible - usando fallback")
-                self.usar_html_viewer = False
-                self.crear_fallback_viewer()
+                raise ImportError("tkinterweb.HtmlFrame no disponible")
             
         except Exception as e:
             print(f"Error creando HTML viewer: {e}")
@@ -1655,8 +1523,7 @@ class TraductorChino:
             html_contenido = self.generador_html.generar_html_optimizado(
                 datos_tabla, 
                 "Pronunciación Pinyin - Ultra Optimizado",
-                contenido_completo,
-                self.idioma_destino_actual
+                contenido_completo
             )
             
             # Cargar en viewer con manejo de errores
@@ -1664,9 +1531,7 @@ class TraductorChino:
             
             # Actualizar info
             total_filas = len(datos_tabla) if datos_tabla else 0
-            idioma_label = "Español" if getattr(self, 'idioma_destino_actual', 'es') == 'es' else "English"
-            self.info_pinyin.configure(text=f"💡 HTML⚡ - {total_filas} filas cargadas · {idioma_label}")
-            self.ultimo_idioma_renderizado = getattr(self, 'idioma_destino_actual', 'es')
+            self.info_pinyin.configure(text=f"💡 HTML⚡ - {total_filas} filas cargadas")
             
             print(f"HTML Pinyin actualizado: {total_filas} filas")
             return True
@@ -1691,8 +1556,7 @@ class TraductorChino:
             html_contenido = self.generador_html.generar_html_optimizado(
                 self.datos_tabla_actual,
                 "Traductor Chino - Tabla Pinyin Interactiva",
-                contenido_completo,
-                self.idioma_destino_actual
+                contenido_completo
             )
             
             # Crear archivo temporal
@@ -2443,14 +2307,6 @@ class TraductorChino:
             self.mostrar_error("Por favor, ingresa texto en chino para traducir")
             return
         
-        # Establecer idioma de destino
-        self.idioma_destino_actual = 'es'
-        
-        # Si ya hay una tabla Pinyin, solo actualizar las traducciones
-        if hasattr(self, 'datos_tabla_actual') and self.datos_tabla_actual:
-            self.actualizar_traducciones_tabla_pinyin()
-            return
-        
         # Prevenir múltiples traducciones simultáneas
         if self.traduccion_en_progreso:
             self.mostrar_error("Ya hay una traducción en progreso. Espera a que termine.")
@@ -3044,106 +2900,6 @@ class TraductorChino:
         except Exception as e:
             print(f"Error creando tabla desde caché: {e}")
     
-    def actualizar_traducciones_tabla_pinyin(self):
-        """Actualiza traducciones existentes mostrando progreso y sin bloquear la UI"""
-        try:
-            if not hasattr(self, 'datos_tabla_actual') or not self.datos_tabla_actual:
-                return
-
-            idioma_objetivo = getattr(self, 'idioma_destino_actual', 'es')
-
-            if getattr(self, 'actualizacion_traduccion_en_progreso', False):
-                self.idioma_destino_pendiente = idioma_objetivo
-                print(f"⏳ Actualización en curso, se programó el idioma pendiente: {idioma_objetivo}")
-                return
-
-            if hasattr(self, 'cache_traducciones_grupos'):
-                elementos_cache = len(self.cache_traducciones_grupos)
-                if elementos_cache:
-                    print(f"🧹 Limpiando caché de traducciones de grupos ({elementos_cache} elementos)")
-                self.cache_traducciones_grupos.clear()
-
-            self.actualizacion_traduccion_en_progreso = True
-            self.idioma_destino_pendiente = None
-
-            nombre_idioma = "Español" if idioma_objetivo == 'es' else "English"
-            mensaje_inicio = "Actualizando traducciones al español..." if idioma_objetivo == 'es' else "Updating translations to English..."
-
-            self.mostrar_barra_progreso(mensaje_inicio)
-            self.actualizar_progreso(5, "Preparando actualización...")
-
-            def trabajo():
-                idioma_trabajo = idioma_objetivo
-
-                def update_step(valor, texto):
-                    self.app.after(0, lambda v=valor, t=texto: self.actualizar_progreso(v, t))
-
-                try:
-                    update_step(15, "Analizando estructura de tabla...")
-
-                    if self.usar_html_viewer and hasattr(self, 'html_frame'):
-                        contenido_completo = getattr(self, 'contenido_completo_actual', None)
-                        update_step(35, "Generando HTML optimizado...")
-                        html_contenido = self.generador_html.generar_html_optimizado(
-                            self.datos_tabla_actual,
-                            "Pronunciación Pinyin - Ultra Optimizado",
-                            contenido_completo,
-                            idioma_trabajo
-                        )
-                        update_step(80, "Aplicando nuevo idioma en el visor...")
-
-                        def cargar_html():
-                            try:
-                                self.html_frame.load_html(html_contenido)
-                                total_filas = len(self.datos_tabla_actual) if self.datos_tabla_actual else 0
-                                self.info_pinyin.configure(
-                                    text=f"💡 HTML⚡ - {total_filas} filas · {nombre_idioma}"
-                                )
-                                self.ultimo_idioma_renderizado = idioma_trabajo
-                                self.actualizar_progreso(95, "Casi listo...")
-                            except Exception as e:
-                                print(f"❌ Error aplicando HTML actualizado: {e}")
-                        self.app.after(0, cargar_html)
-                    else:
-                        update_step(60, "Reconstruyendo tabla Pinyin...")
-
-                        def regenerar_tabla():
-                            try:
-                                self.crear_tabla_pinyin(self.datos_tabla_actual)
-                                total_filas = len(self.datos_tabla_actual) if self.datos_tabla_actual else 0
-                                self.info_pinyin.configure(
-                                    text=f"📋 Tabla CTk - {total_filas} filas · {nombre_idioma}"
-                                )
-                                self.ultimo_idioma_renderizado = idioma_trabajo
-                                self.actualizar_progreso(95, "Casi listo...")
-                            except Exception as e:
-                                print(f"❌ Error actualizando tabla CTk: {e}")
-                        self.app.after(0, regenerar_tabla)
-
-                except Exception as e:
-                    print(f"❌ Error actualizando traducciones de tabla Pinyin: {e}")
-                    self.app.after(0, lambda: self.mostrar_error(f"Error actualizando traducciones: {e}"))
-                finally:
-                    def finalizar():
-                        self.actualizar_progreso(100, "Actualización completada")
-                        self.actualizacion_traduccion_en_progreso = False
-                        self.app.after(350, self.ocultar_barra_progreso)
-
-                        pendiente = getattr(self, 'idioma_destino_pendiente', None)
-                        if pendiente and pendiente != idioma_trabajo:
-                            print(f"🔁 Procesando idioma pendiente: {pendiente}")
-                            self.idioma_destino_pendiente = None
-                            self.actualizar_traducciones_tabla_pinyin()
-
-                    self.app.after(0, finalizar)
-
-            threading.Thread(target=trabajo, daemon=True).start()
-
-        except Exception as e:
-            self.actualizacion_traduccion_en_progreso = False
-            print(f"❌ Error general actualizando traducciones de tabla Pinyin: {e}")
-            self.mostrar_error(f"Error general actualizando traducciones: {e}")
-    
     def cargar_traduccion_desde_variable(self):
         """Carga la traducción desde las variables en caché para evitar re-procesamiento"""
         try:
@@ -3277,14 +3033,14 @@ class TraductorChino:
     
     def deshabilitar_botones(self):
         """Deshabilita los botones durante la traducción"""
-        botones = [self.btn_traducir, self.btn_auto, self.btn_espanol, self.btn_ingles, self.btn_exportar_pdf]
+        botones = [self.btn_traducir, self.btn_auto, self.btn_espanol, self.btn_ingles]
         for btn in botones:
             if hasattr(btn, 'configure'):
                 btn.configure(state="disabled")
     
     def habilitar_botones(self):
         """Habilita los botones después de la traducción"""
-        botones = [self.btn_traducir, self.btn_auto, self.btn_espanol, self.btn_ingles, self.btn_exportar_pdf]
+        botones = [self.btn_traducir, self.btn_auto, self.btn_espanol, self.btn_ingles]
         for btn in botones:
             if hasattr(btn, 'configure'):
                 btn.configure(state="normal")
@@ -3300,14 +3056,6 @@ class TraductorChino:
         texto = self.texto_entrada.get("1.0", "end-1c")
         if not texto.strip():
             self.mostrar_error("Por favor, ingresa texto en chino para traducir")
-            return
-        
-        # Establecer idioma de destino
-        self.idioma_destino_actual = 'en'
-        
-        # Si ya hay una tabla Pinyin, solo actualizar las traducciones
-        if hasattr(self, 'datos_tabla_actual') and self.datos_tabla_actual:
-            self.actualizar_traducciones_tabla_pinyin()
             return
         
         # Prevenir múltiples traducciones simultáneas
@@ -3769,15 +3517,10 @@ class TraductorChino:
             
             # Agregar información sobre la cantidad de caracteres procesados
             total_caracteres = sum(len([c for c in fila if c.strip()]) for i, fila in enumerate(datos) if i % 2 == 1)
-            if hasattr(self, 'info_pinyin'):
-                idioma_label = "Español" if getattr(self, 'idioma_destino_actual', 'es') == 'es' else "English"
-                if total_caracteres > 50:
-                    mensaje_info = f"💡 {total_caracteres} caracteres procesados • {idioma_label} • Usa scroll para navegar"
-                else:
-                    mensaje_info = f"📋 Tabla Pinyin cargada • {idioma_label}"
+            if hasattr(self, 'info_pinyin') and total_caracteres > 50:
+                # Mensaje informativo mejorado
+                mensaje_info = f"💡 {total_caracteres} caracteres procesados • Usa scroll para navegar"
                 self.info_pinyin.configure(text=mensaje_info)
-
-            self.ultimo_idioma_renderizado = getattr(self, 'idioma_destino_actual', 'es')
             
         except Exception as e:
             print(f"Error creando tabla: {e}")
@@ -3985,305 +3728,6 @@ class TraductorChino:
             print(f"Resultado: {'✅ CORRECTO' if respetado else '❌ ERROR'}")
         
         print("\n🎯 Prueba de respeto de puntuaciones completada.")
-    
-    def exportar_html_como_pdf(self):
-        """Exporta el contenido HTML del viewer como PDF"""
-        try:
-            # Verificar que hay contenido para exportar
-            if not hasattr(self, 'datos_tabla_actual') or not self.datos_tabla_actual:
-                self.mostrar_error("No hay tabla de Pinyin para exportar")
-                return
-            
-            # Importar librerías necesarias
-            try:
-                import webbrowser
-                import tempfile
-                from tkinter import filedialog
-                import os
-            except ImportError as e:
-                self.mostrar_error(f"Error importando librerías: {e}")
-                return
-            
-            # Pedir al usuario dónde guardar el archivo
-            archivo_pdf = filedialog.asksaveasfilename(
-                title="Guardar PDF",
-                defaultextension=".pdf",
-                filetypes=[
-                    ("PDF files", "*.pdf"),
-                    ("HTML files", "*.html"),
-                    ("All files", "*.*")
-                ],
-                initialfile="tabla_pinyin_traduccion.pdf"
-            )
-            
-            if not archivo_pdf:
-                return  # Usuario canceló
-            
-            # Obtener contenido completo si está disponible
-            contenido_completo = None
-            if hasattr(self, 'contenido_completo_actual'):
-                contenido_completo = self.contenido_completo_actual
-            
-            # Generar HTML completo para exportar
-            html_para_pdf = self.generar_html_para_pdf()
-            
-            # Determinar si es PDF o HTML según la extensión
-            if archivo_pdf.lower().endswith('.pdf'):
-                # Intentar convertir a PDF usando diferentes métodos
-                exito = self.convertir_html_a_pdf(html_para_pdf, archivo_pdf)
-                if not exito:
-                    # Fallback: guardar como HTML y abrir en navegador para que el usuario lo convierta
-                    archivo_html = archivo_pdf.replace('.pdf', '.html')
-                    with open(archivo_html, 'w', encoding='utf-8') as f:
-                        f.write(html_para_pdf)
-                    
-                    webbrowser.open(f"file://{archivo_html}")
-                    self.mostrar_mensaje_info(
-                        "PDF Export Info",
-                        f"Se guardó como HTML: {archivo_html}\n\n"
-                        "Se abrió en tu navegador.\n"
-                        "Para convertir a PDF:\n"
-                        "1. Presiona Ctrl+P en el navegador\n"
-                        "2. Selecciona 'Guardar como PDF'\n"
-                        "3. Haz clic en 'Guardar'"
-                    )
-            else:
-                # Guardar como HTML directamente
-                with open(archivo_pdf, 'w', encoding='utf-8') as f:
-                    f.write(html_para_pdf)
-                
-                # Preguntar si abrir el archivo
-                respuesta = self.preguntar_si_no("¿Abrir el archivo HTML guardado?")
-                if respuesta:
-                    webbrowser.open(f"file://{archivo_pdf}")
-                
-                self.mostrar_mensaje_info("Exportado", f"Archivo guardado exitosamente:\n{archivo_pdf}")
-            
-        except Exception as e:
-            self.mostrar_error(f"Error exportando: {str(e)}")
-    
-    def generar_html_para_pdf(self):
-        """Genera HTML optimizado específicamente para PDF"""
-        try:
-            # Usar el generador HTML existente pero con ajustes para PDF
-            html_base = self.generador_html.generar_html_optimizado(
-                self.datos_tabla_actual,
-                "Tabla de Pronunciación Pinyin - Exportación PDF",
-                getattr(self, 'contenido_completo_actual', None),
-                self.idioma_destino_actual
-            )
-            
-            # Agregar estilos específicos para PDF
-            estilos_pdf = """
-            <style>
-                @media print {
-                    body {
-                        -webkit-print-color-adjust: exact;
-                        print-color-adjust: exact;
-                        background: #ffffff;
-                    }
-                    .no-print {
-                        display: none !important;
-                    }
-                    .page-break {
-                        page-break-before: always;
-                    }
-                }
-
-                body {
-                    font-family: 'Arial', 'Microsoft YaHei', sans-serif;
-                    margin: 25px;
-                    line-height: 1.5;
-                    color: #1f2937;
-                    background: #ffffff;
-                }
-
-                .header {
-                    margin-bottom: 30px;
-                    text-align: center;
-                }
-
-                .table-container {
-                    width: 100%;
-                    overflow: visible;
-                }
-
-                .pinyin-table {
-                    border-collapse: collapse;
-                    width: 100%;
-                    margin: 20px 0;
-                    table-layout: fixed;
-                }
-
-                .pinyin-row,
-                .chinese-row,
-                .translation-row {
-                    page-break-inside: avoid;
-                }
-
-                .pinyin-cell,
-                .chinese-cell {
-                    border: 1px solid #333;
-                    padding: 10px;
-                    text-align: center;
-                    font-size: 14px;
-                    word-break: break-word;
-                    background-color: #fafafa;
-                }
-
-                .pinyin-row .pinyin-cell {
-                    background-color: #f3f4f6;
-                    font-weight: 600;
-                }
-
-                .translation-row {
-                    background-color: #eef2ff;
-                }
-
-                .translation-cell {
-                    border: 1px solid #333;
-                    padding: 12px 14px;
-                    font-size: 15px;
-                    font-weight: 500;
-                    word-break: break-word;
-                    background-color: #eef2ff;
-                }
-
-                .translation-content {
-                    margin: 0;
-                    padding: 0;
-                    border: none;
-                    background: transparent;
-                    color: #1f2937;
-                    display: block;
-                    line-height: 1.6;
-                }
-
-                .export-info {
-                    margin-top: 40px;
-                    padding: 20px;
-                    border-top: 2px solid #333;
-                    font-size: 12px;
-                    color: #4b5563;
-                }
-            </style>
-            """
-            
-            # Insertar estilos PDF después del <head>
-            html_modificado = html_base.replace('</head>', f'{estilos_pdf}</head>')
-            
-            # Agregar información de exportación al final
-            fecha_actual = time.strftime("%Y-%m-%d %H:%M:%S")
-            total_filas = len(self.datos_tabla_actual) if getattr(self, 'datos_tabla_actual', None) else 0
-            total_grupos = total_filas // 2
-            texto_original = getattr(self, 'texto_chino_actual', 'N/A') or 'N/A'
-            resumen_texto = texto_original[:100] + ('...' if len(texto_original) > 100 else '')
-
-            info_exportacion = f"""
-            <div class="export-info">
-                <h3>Información de Exportación</h3>
-                <p><strong>Fecha de exportación:</strong> {fecha_actual}</p>
-                <p><strong>Generado por:</strong> Traductor de Chino Ultra Optimizado</p>
-                <p><strong>Total de filas:</strong> {total_filas}</p>
-                <p><strong>Grupos procesados:</strong> {total_grupos}</p>
-                <p><strong>Texto original:</strong> {resumen_texto}</p>
-            </div>
-            """
-            
-            html_modificado = html_modificado.replace('</body>', f'{info_exportacion}</body>')
-            
-            return html_modificado
-            
-        except Exception as e:
-            print(f"Error generando HTML para PDF: {e}")
-            # Fallback básico
-            return self.generador_html.generar_html_optimizado(
-                self.datos_tabla_actual,
-                "Tabla de Pronunciación Pinyin",
-                None,
-                self.idioma_destino_actual
-            )
-    
-    def convertir_html_a_pdf(self, html_content, archivo_pdf):
-        """Intenta convertir HTML a PDF usando diferentes métodos"""
-        try:
-            # Método 1: Intentar con weasyprint
-            try:
-                import weasyprint
-                weasyprint.HTML(string=html_content).write_pdf(archivo_pdf)
-                self.mostrar_mensaje_info("PDF Creado", f"PDF guardado exitosamente:\n{archivo_pdf}")
-                return True
-            except ImportError:
-                print("weasyprint no disponible")
-            except Exception as e:
-                print(f"Error con weasyprint: {e}")
-            
-            # Método 2: Intentar con pdfkit
-            try:
-                import pdfkit
-                pdfkit.from_string(html_content, archivo_pdf)
-                self.mostrar_mensaje_info("PDF Creado", f"PDF guardado exitosamente:\n{archivo_pdf}")
-                return True
-            except ImportError:
-                print("pdfkit no disponible")
-            except Exception as e:
-                print(f"Error con pdfkit: {e}")
-            
-            # Si no funciona ninguno, retornar False para usar método alternativo
-            return False
-            
-        except Exception as e:
-            print(f"Error general convirtiendo a PDF: {e}")
-            return False
-    
-    def mostrar_mensaje_info(self, titulo, mensaje):
-        """Muestra un mensaje informativo al usuario"""
-        try:
-            ventana_info = customtkinter.CTkToplevel(self.app)
-            ventana_info.geometry("400x200")
-            ventana_info.title(titulo)
-            ventana_info.resizable(False, False)
-            
-            # Centrar la ventana
-            ventana_info.transient(self.app)
-            ventana_info.grab_set()
-            
-            # Configurar grid
-            ventana_info.grid_columnconfigure(0, weight=1)
-            
-            label_info = customtkinter.CTkLabel(
-                ventana_info,
-                text=mensaje,
-                font=("Arial", 12),
-                wraplength=350
-            )
-            label_info.grid(row=0, column=0, pady=20, padx=20)
-            
-            btn_ok = customtkinter.CTkButton(
-                ventana_info,
-                text="OK",
-                command=ventana_info.destroy,
-                width=80,
-                height=30
-            )
-            btn_ok.grid(row=1, column=0, pady=(0, 20))
-            
-            # Centrar la ventana en la pantalla
-            ventana_info.update_idletasks()
-            x = (ventana_info.winfo_screenwidth() // 2) - (ventana_info.winfo_width() // 2)
-            y = (ventana_info.winfo_screenheight() // 2) - (ventana_info.winfo_height() // 2)
-            ventana_info.geometry(f"+{x}+{y}")
-            
-        except Exception as e:
-            print(f"Error mostrando mensaje info: {e}")
-    
-    def preguntar_si_no(self, pregunta):
-        """Muestra un diálogo de sí/no"""
-        try:
-            from tkinter import messagebox
-            return messagebox.askyesno("Confirmación", pregunta)
-        except:
-            return True  # Default a sí si hay error
     
     def cerrar_aplicacion(self):
         """Cierra la aplicación de manera limpia"""
