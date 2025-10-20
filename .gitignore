@@ -30,7 +30,28 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+# Mantener TraductorChino.spec que es necesario
+# *.spec
+
+# Archivos temporales del proyecto
+*.backup
+*_temp.html
+test_*.py
+fix_*.py
+instalar_*.py
+
+# Archivos de documentación temporal
+CORRECCIONES_*.md
+CORRECCION_*.md
+MEJORAS_*.md
+MEJORA_*.md
+OPTIMIZACIONES_ULTRA.md
+DISTRIBUCION.md
+ERRORES_*.md
+RESUMEN_*.md
+
+# Entornos virtuales v2
+venv_v2/
 
 # Installer logs
 pip-log.txt

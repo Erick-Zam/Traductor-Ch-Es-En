@@ -1,0 +1,18 @@
+# Traductor Chino v2.0 - Dependencias Optimizadas
+# Framework GUI moderno y ligero
+
+# PyQt6 - Framework GUI moderno (más ligero que tkinter)
+# Ventajas: Mejor rendimiento, menos memoria, más rápido
+PyQt6>=6.6.0
+
+# Traducción
+deep-translator>=1.11.4
+
+# Pronunciación Pinyin
+pypinyin>=0.50.0
+
+# Monitoreo de recursos
+psutil>=5.9.0
+
+# Opcional: PDF export (si se necesita)
+# reportlab>=4.0.0
